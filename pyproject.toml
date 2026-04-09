@@ -1,0 +1,44 @@
+[project]
+name = "geopulse-intelligence"
+version = "0.1.0"
+description = "Real-time disaster monitoring system — India focused"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # API & Server
+    "fastapi",
+    "uvicorn[standard]",
+
+    # Dashboard
+    "streamlit",
+    "streamlit-folium",
+    "folium",
+
+    # Database
+    "pymongo",               # SRV support is built-in since pymongo 4.x
+
+    # Scheduling
+    "apscheduler",
+
+    # Data Collection
+    "feedparser",
+    "httpx",
+    "lxml",
+    "newsapi-python",
+
+    # AI / ML
+    "spacy",
+    "transformers",
+    "torch",
+    "google-generativeai",
+
+    # Geo
+    "geopy",
+
+    # Clustering
+    "scikit-learn",
+    "numpy",
+
+    # Utilities
+    "python-dotenv",
+]

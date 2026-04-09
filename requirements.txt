@@ -1,0 +1,53 @@
+# ════════════════════════════════════════════════════════════════════════════
+# GeoPulse Intelligence — Requirements
+# ════════════════════════════════════════════════════════════════════════════
+#
+# Setup (choose one):
+#
+#   With uv (recommended):
+#     uv sync
+#     uv run python -m spacy download en_core_web_sm
+#
+#   With pip (standard):
+#     pip install -r requirements.txt
+#     python -m spacy download en_core_web_sm
+#
+# ════════════════════════════════════════════════════════════════════════════
+
+# ── API & Server ──────────────────────────────────────────────────────────────
+fastapi
+uvicorn[standard]
+
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+streamlit
+streamlit-folium
+folium
+
+# ── Database ──────────────────────────────────────────────────────────────────
+# Note: pymongo 4.x has SRV support built-in, no [srv] extra needed
+pymongo
+
+# ── Scheduling (background cron jobs) ─────────────────────────────────────────
+apscheduler
+
+# ── Data Collection ───────────────────────────────────────────────────────────
+feedparser
+httpx
+lxml
+newsapi-python
+
+# ── AI / ML ───────────────────────────────────────────────────────────────────
+spacy
+transformers
+torch
+google-generativeai
+
+# ── Geo ───────────────────────────────────────────────────────────────────────
+geopy
+
+# ── Clustering ────────────────────────────────────────────────────────────────
+scikit-learn
+numpy
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv
