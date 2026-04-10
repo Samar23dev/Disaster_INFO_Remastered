@@ -36,4 +36,6 @@ def get_event(event_id: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Event not found")
     event["_id"] = str(event["_id"])
+    if event.get("raw_event_id"):
+        event["raw_event_id"] = str(event["raw_event_id"])
     return event

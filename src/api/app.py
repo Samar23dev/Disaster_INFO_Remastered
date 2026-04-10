@@ -32,10 +32,12 @@ def create_app() -> FastAPI:
     from src.api.routes.events import router as events_router
     from src.api.routes.alerts import router as alerts_router
     from src.api.routes.stats import router as stats_router
+    from src.api.routes.pipeline import router as pipeline_router
 
     app.include_router(events_router, prefix="/api")
     app.include_router(alerts_router, prefix="/api")
     app.include_router(stats_router,  prefix="/api")
+    app.include_router(pipeline_router, prefix="/api")
 
     @app.get("/", tags=["Health"])
     def health_check():

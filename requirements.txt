@@ -40,7 +40,7 @@ newsapi-python
 spacy
 transformers
 torch
-google-generativeai
+google-genai
 
 # ── Geo ───────────────────────────────────────────────────────────────────────
 geopy

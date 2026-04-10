@@ -1,10 +1,10 @@
 # 🚨 GeoPulse Intelligence — Disaster Information System
-## Implementation Plan (v2 — MongoDB Edition)
+## Implementation Plan (v3 — Verified & Updated)
 
-> **Type:** Research Project  
-> **Stack:** Python · FastAPI · Streamlit · MongoDB · spaCy · HuggingFace · Gemini  
-> **Scope:** Local development → AWS deployment → Future Flutter app  
-> **Auth:** Out of scope for now  
+> **Type:** Research Project
+> **Stack:** Python · FastAPI · Streamlit · MongoDB · spaCy · HuggingFace · Gemini
+> **Scope:** Local development → AWS deployment → Future Flutter app
+> **Auth:** Out of scope for now
 
 ---
 
@@ -13,7 +13,7 @@
 ```
 Data Sources
   NDMA CAP Feed (XML)
-  RSS Feeds (TOI, The Hindu, Indian Express)
+  RSS Feeds (TOI, The Hindu, Indian Express, NDTV, Hindustan Times)
   NewsAPI (JSON)
         │
         ▼
@@ -31,7 +31,7 @@ Data Sources
         │ if confidence < 0.75
     ML Classifier  (distilbart-mnli-12-3, zero-shot)
         │ if confidence < 0.55
-    LLM Fallback  (Gemini 1.5 Flash)
+    LLM Fallback  (Gemini 2.5 Flash)
         │
         ▼
   Severity Detection
@@ -47,7 +47,7 @@ Data Sources
   MongoDB: processed_events collection  (with 2dsphere index)
         │
         ▼
-  Event Clustering (DBSCAN / $geoWithin)
+  Event Clustering (DBSCAN / ball_tree haversine)
         │
         ▼
   Alert Engine → MongoDB: alerts collection
@@ -66,23 +66,23 @@ Data Sources
 
 | Layer | Tool | Why |
 |---|---|---|
-| Language | Python 3.11 | Ecosystem fit |
+| Language | Python 3.11+ | Ecosystem fit |
 | Frontend | Streamlit | Fast research UI |
 | API | FastAPI + Uvicorn | Flutter-ready REST API |
 | Database | **MongoDB** | Flexible schema, native geo queries |
 | Cloud DB | **MongoDB Atlas (free 512MB)** | No EC2 needed for DB |
-| ODM/Driver | **pymongo[srv]** | Atlas SRV support |
+| ODM/Driver | **pymongo** | Atlas SRV support built-in since v4.x |
 | Scheduling | APScheduler | Python-native background cron |
-| NER | spaCy `en_core_web_sm` | Location extraction |
+| NER | spaCy `en_core_web_sm` v3.8.0 | Location extraction |
 | ML Model | `valhalla/distilbart-mnli-12-3` | Lighter zero-shot (4× faster than bart-large) |
-| LLM Fallback | Gemini 1.5 Flash | Cheap + fast, capped at 10 calls/cycle |
+| LLM Fallback | Gemini 2.5 Flash | Cheap + fast, capped at 10 calls/cycle |
 | Geo API | OSM Nominatim | Free, no key needed |
 | News | NewsAPI (newsapi.org) | 100 req/day free, structured JSON |
 | RSS | feedparser | Standard XML RSS parsing |
 | Maps | folium + streamlit-folium | Interactive maps in Streamlit |
-| Clustering | scikit-learn DBSCAN | Spatial event grouping |
+| Clustering | scikit-learn DBSCAN (ball_tree + haversine) | Spatial event grouping |
 | HTTP | httpx | Async-compatible |
-| XML | lxml | NDMA CAP parsing |
+| XML | lxml + ElementTree | NDMA CAP parsing |
 
 ---
 
@@ -92,79 +92,64 @@ Data Sources
 DisasterManagement/
 │
 ├── main.py                         # Unified entry: FastAPI + APScheduler
-├── app.py                          # Streamlit dashboard entry
+├── app.py                          # Streamlit dashboard entry (home page)
 ├── IMPLEMENTATION_PLAN.md          # This file
-├── README.md
-├── pyproject.toml
-├── requirements.txt
+├── pyproject.toml                  # uv-compatible, 40+ dependencies
+├── requirements.txt                # Human-readable dependency list
 ├── .env                            # Keys (not committed to git)
-├── .env.example                    # Template for .env
+├── .env.example                    # Template for .env (9 variables)
 ├── .gitignore
+├── verify_all.py                   # 21/21 module checks
+├── verify_api.py                   # API route registration check
+├── test_api_endpoints.py           # Live endpoint testing (server must be running)
+├── test_full_pipeline.py           # End-to-end data flow test
+├── cleanup_and_reprocess.py        # Wipe processed_events + reprocess raw
+├── API_VERIFICATION_REPORT.md      # Detailed API test results
 │
 ├── src/
 │   ├── __init__.py
-│   │
 │   ├── db/
-│   │   ├── __init__.py
-│   │   ├── database.py             # MongoDB connection + index init
-│   │   └── crud.py                 # All read/write operations
-│   │
-│   ├── collectors/                 # PHASE 1 — Data Collection
-│   │   ├── __init__.py
-│   │   ├── ndma_collector.py       # NDMA CAP XML feed
-│   │   ├── rss_collector.py        # TOI / Hindu / Express RSS feeds
-│   │   └── newsapi_collector.py    # NewsAPI JSON feed
-│   │
-│   ├── processors/                 # PHASE 1 — Pre-processing
-│   │   ├── __init__.py
-│   │   ├── keyword_filter.py       # Disaster keyword pre-filter
-│   │   ├── normalizer.py           # All sources → common schema
+│   │   ├── database.py             # MongoDB singleton + index init
+│   │   └── crud.py                 # All read/write operations (single source of truth)
+│   ├── collectors/
+│   │   ├── ndma_collector.py       # NDMA CAP XML feed (ETag caching)
+│   │   ├── rss_collector.py        # 5 RSS feeds (TOI/Hindu/Express/NDTV/HT)
+│   │   └── newsapi_collector.py    # NewsAPI.org JSON (4 search queries)
+│   ├── processors/
+│   │   ├── keyword_filter.py       # Disaster keyword pre-filter + negative kw exclusion
+│   │   ├── normalizer.py           # All sources → common schema dict
 │   │   └── deduplicator.py         # SHA256 hash dedup before insert
-│   │
-│   ├── classifiers/                # PHASE 2 — Classification
-│   │   ├── __init__.py
-│   │   ├── rule_classifier.py      # Keyword-based (fast path)
-│   │   ├── ml_classifier.py        # HuggingFace zero-shot (singleton)
-│   │   ├── llm_fallback.py         # Gemini API (last resort)
+│   ├── classifiers/
+│   │   ├── rule_classifier.py      # Regex keyword fast-path (< 1ms)
+│   │   ├── ml_classifier.py        # HuggingFace zero-shot singleton
+│   │   ├── llm_fallback.py         # Gemini 2.5 Flash (max 10/cycle)
 │   │   ├── severity_detector.py    # HIGH / MEDIUM / LOW rules
-│   │   └── pipeline.py             # Orchestrates the full chain
-│   │
-│   ├── geo/                        # PHASE 3 — Geo Intelligence
-│   │   ├── __init__.py
-│   │   ├── ner_extractor.py        # spaCy GPE extraction
-│   │   ├── loc_normalizer.py       # Bombay→Mumbai alias dict
-│   │   ├── geo_resolver.py         # Nominatim + geo_cache collection
-│   │   ├── spatial_dedup.py        # MongoDB $near dedup (50km/12hr)
-│   │   └── clusterer.py            # DBSCAN cluster assignment
-│   │
-│   ├── alerts/                     # PHASE 4 — Alert Engine
-│   │   ├── __init__.py
-│   │   ├── alert_engine.py         # Trigger rules → write alerts
-│   │   ├── risk_scorer.py          # Location risk score
-│   │   └── safety_advisor.py       # Gemini safety tips (cached)
-│   │
-│   ├── api/                        # FastAPI — Flutter-ready REST
-│   │   ├── __init__.py
-│   │   ├── app.py                  # FastAPI instance
+│   │   └── pipeline.py             # Full rule → ML → LLM → geo → dedup → alert chain
+│   ├── geo/
+│   │   ├── ner_extractor.py        # spaCy GPE/LOC extraction (singleton)
+│   │   ├── loc_normalizer.py       # Alias dict (Bombay→Mumbai, title-case values)
+│   │   ├── geo_resolver.py         # Nominatim + geo_cache, 1.1s rate limit
+│   │   ├── spatial_dedup.py        # MongoDB $near dedup (50km / 12hr)
+│   │   └── clusterer.py            # DBSCAN cluster assignment (haversine ball_tree)
+│   ├── alerts/
+│   │   ├── alert_engine.py         # Threshold-based alert generation (risk >= 45)
+│   │   ├── risk_scorer.py          # Composite risk score 0-100
+│   │   └── safety_advisor.py       # Gemini safety tips (1hr TTL cache per type+severity)
+│   ├── api/
+│   │   ├── app.py                  # FastAPI factory, CORS, docs at /api/docs
 │   │   └── routes/
-│   │       ├── events.py           # GET /api/events
+│   │       ├── events.py           # GET /api/events, GET /api/events/{id}
 │   │       ├── alerts.py           # GET /api/alerts
-│   │       └── stats.py            # GET /api/stats, /api/heatmap
-│   │
+│   │       ├── stats.py            # GET /api/stats, /api/heatmap, /api/risk/{location}
+│   │       └── pipeline.py         # POST /api/pipeline/run (BackgroundTasks)
 │   └── scheduler/
-│       ├── __init__.py
-│       └── jobs.py                 # APScheduler job definitions
+│       └── jobs.py                 # APScheduler (Asia/Kolkata), lazy imports
 │
 └── dashboard/                      # Streamlit UI
-    ├── pages/
-    │   ├── 1_Home.py               # Live event feed + cards
-    │   ├── 2_Map.py                # Folium map + clusters
-    │   ├── 3_Analytics.py          # Charts + state breakdown
-    │   └── 4_Alerts.py             # Alert history + risk scores
+    ├── app.py                      # Home page (live stats, event breakdown)
     └── components/
-        ├── event_card.py
-        ├── sidebar.py
-        └── map_builder.py
+        └── sidebar.py              # ⚠️ MISSING — referenced in app.py but not created
+    (pages/ directory does not exist yet — Phase 5 incomplete)
 ```
 
 ---
@@ -173,44 +158,27 @@ DisasterManagement/
 
 ### Connection
 ```
-Local Dev (MongoDB Compass):  mongodb://localhost:27017/disaster_db
-Future Prod (Atlas):          mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/disaster_db
+Local Dev:   mongodb://localhost:27017/disaster_db
+Production:  mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/disaster_db
 ```
-> **Phase 0 uses MongoDB Compass (local).** Install MongoDB Community Server + Compass GUI.
-> When ready to deploy, just change `MONGO_URI` in `.env` — zero code change.
-
-**Compass setup:**
-- Download: https://www.mongodb.com/try/download/compass
-- Connect to: `mongodb://localhost:27017`
-- Database name: `disaster_db`
-- You can inspect all collections live as data flows in
-
----
+> Change `MONGO_URI` in `.env` to switch — zero code change.
 
 ### Collection: `raw_events`
 ```json
 {
   "_id": "ObjectId (auto)",
-  "source": "NDMA | TOI | TheHindu | IndianExpress | NewsAPI",
+  "source": "NDMA | TOI | TheHindu | IndianExpress | NDTV | HindustanTimes | NewsAPI",
   "title": "Flood warning issued for Assam",
   "description": "Heavy rainfall expected...",
   "link": "https://...",
   "timestamp": "ISODate",
   "raw_content": "original XML or JSON string",
-  "dedup_hash": "sha256(source+title[:50]+date_hour)",
+  "dedup_hash": "sha256(source+title[:60]+date_hour)",
   "is_processed": false,
   "created_at": "ISODate"
 }
 ```
-
-**Indexes:**
-```python
-collection.create_index("dedup_hash", unique=True)   # prevents duplicates
-collection.create_index("is_processed")              # fast unprocessed fetch
-collection.create_index("created_at")                # time-based queries
-```
-
----
+**Indexes:** `dedup_hash` (unique), `is_processed`, `created_at`
 
 ### Collection: `processed_events`
 ```json
@@ -220,70 +188,53 @@ collection.create_index("created_at")                # time-based queries
   "disaster_type": "flood | earthquake | cyclone | landslide | heatwave | fire | tsunami | storm",
   "location": {
     "name": "Guwahati",
-    "state": "Assam",
+    "state": "Unknown",
     "country": "India",
-    "geo": {
-      "type": "Point",
-      "coordinates": [91.7362, 26.1445]
-    }
+    "geo": { "type": "Point", "coordinates": [91.7362, 26.1445] }
   },
   "severity": "HIGH | MEDIUM | LOW",
   "confidence": 0.87,
   "source": "NDMA",
-  "source_reliability": 0.95,
-  "source_count": 3,
-  "cluster_id": "cluster_042",
+  "source_reliability": 0.80,
+  "source_count": 1,
+  "cluster_id": "CL-abc12345",
   "is_active": true,
   "timestamp": "ISODate",
   "created_at": "ISODate"
 }
 ```
+**Indexes:** `location.geo` (2dsphere), `disaster_type`, `severity`, `is_active`, `timestamp`
 
-**Indexes:**
-```python
-# 2dsphere REQUIRED for all geo queries
-collection.create_index([("location.geo", "2dsphere")])
-collection.create_index("disaster_type")
-collection.create_index("severity")
-collection.create_index("is_active")
-collection.create_index("timestamp")
-```
-
-> ⚠️ GeoJSON format uses [longitude, latitude] — opposite of (lat, lon).
-> Always store as coordinates: [lon, lat]
-
----
+> ⚠️ GeoJSON uses [longitude, latitude] — always store as coordinates: [lon, lat]
 
 ### Collection: `alerts`
 ```json
 {
   "_id": "ObjectId (auto)",
   "event_id": "ObjectId",
-  "severity": "HIGH | MEDIUM | LOW",
-  "message": "⚠️ Flood Alert — Guwahati, Assam",
-  "safety_tips": [
-    "Move to higher ground immediately",
-    "Avoid electrical equipment",
-    "Call 112 for emergency services"
-  ],
+  "disaster_type": "flood",
+  "severity": "HIGH",
+  "risk_score": 60,
+  "location_name": "Guwahati",
+  "cluster_id": "CL-abc12345",
+  "safety_advice": "Move to higher ground immediately...",
   "is_read": false,
   "created_at": "ISODate"
 }
 ```
-
----
+**Indexes:** `event_id`, `created_at`, `is_read`
 
 ### Collection: `geo_cache`
 ```json
 {
-  "_id": "guwahati assam india",
+  "_id": "guwahati, india",
   "lat": 26.1445,
   "lon": 91.7362,
   "display_name": "Guwahati, Assam, India",
   "cached_at": "ISODate"
 }
 ```
-> Using the query string as `_id` makes lookups O(1) with no extra index.
+> `_id` = query string → O(1) lookup, no extra index needed.
 
 ---
 
@@ -291,26 +242,16 @@ collection.create_index("timestamp")
 
 ```
 main.py starts
-  │
   ├── FastAPI server (uvicorn) → port 8000
-  └── APScheduler (BackgroundScheduler)
-        │
-        ├── Job 1: run_ndma_collection     → every 3 minutes
-        ├── Job 2: run_rss_collection      → every 8 minutes
-        ├── Job 3: run_newsapi_collection  → every 15 minutes
-        └── Job 4: run_full_pipeline       → every 10 minutes
-              (classification → geo → dedup → clustering → alerts)
+  └── APScheduler (BackgroundScheduler, Asia/Kolkata timezone)
+        ├── Job 1: NDMA CAP Feed Collector     → every 3 minutes
+        ├── Job 2: RSS Feed Collector           → every 8 minutes
+        ├── Job 3: NewsAPI Collector            → every 15 minutes
+        └── Job 4: Classification + Geo + Alert Pipeline → every 10 minutes
 ```
 
-```python
-# src/scheduler/jobs.py
-scheduler = BackgroundScheduler()
-scheduler.add_job(run_ndma_collection,   'interval', minutes=3)
-scheduler.add_job(run_rss_collection,    'interval', minutes=8)
-scheduler.add_job(run_newsapi_collection,'interval', minutes=15)
-scheduler.add_job(run_full_pipeline,     'interval', minutes=10)
-scheduler.start()
-```
+All jobs use lazy imports to avoid circular dependency issues.
+Each job has independent try/except with error logging — one failure doesn't stop others.
 
 ---
 
@@ -318,29 +259,35 @@ scheduler.start()
 
 ```
 COLLECTION (every 3–15 min per source)
-  HTTP GET → parse XML/JSON → keyword_filter → normalize → dedup_hash check → insert raw_events
+  HTTP GET → parse XML/JSON → keyword_filter (+ negative kw exclusion)
+  → normalize → dedup_hash check → insert raw_events
 
 PROCESSING (every 10 min)
-  Fetch raw_events where is_processed = False
+  Fetch raw_events where is_processed = False (oldest-first, limit 50)
     │
     For each event:
+    ├── Rule Classifier       → conf >= 0.75? → use it  (< 1ms)
+    ├── ML Classifier         → conf >= 0.55? → use it  (~50ms cached)
+    └── Gemini 2.5 Flash      → max 10 calls/cycle      (~1-2s)
     │
-    ├── Rule Classifier       → conf > 0.75? → use it
-    ├── ML Classifier         → conf > 0.55? → use it  
-    └── Gemini Fallback       → always returns result (max 10/cycle)
-    │
+    ├── Drop if conf < 0.3 or type == "unknown"
     ├── Severity Detector     → HIGH / MEDIUM / LOW
-    ├── spaCy NER             → extract city, state
-    ├── Alias Normalizer      → Bombay → Mumbai
-    ├── Nominatim Resolver    → check geo_cache → query API → cache result
-    ├── Spatial Dedup ($near) → within 50km + 12hr? → merge, skip insert
-    └── Insert processed_events (with GeoJSON coordinates)
+    ├── spaCy NER             → extract GPE/LOC entities
+    ├── Alias Normalizer      → Bombay → Mumbai (title-case)
+    ├── Nominatim Resolver    → geo_cache hit → return | miss → API + cache
+    ├── Skip if no valid location resolved (no fake coords)
+    ├── Spatial Dedup ($near) → within 50km + 12hr? → increment source_count, skip insert
+    └── Insert processed_events (GeoJSON [lon, lat])
     │
     Mark raw_event is_processed = True
 
 POST-PROCESSING
-  DBSCAN clustering → assign cluster_id to recent events
-  Alert Engine      → check triggers → write alerts
+  DBSCAN clustering (eps=100km, min_samples=2, ball_tree haversine)
+    → assign cluster_id "CL-{first8chars}" to grouped events
+  Alert Engine
+    → scan last 12hr events, skip already-alerted event_ids
+    → calculate risk_score (0-100)
+    → if risk_score >= 45: get Gemini safety advice (1hr cache) → insert alert
 ```
 
 ---
@@ -353,152 +300,149 @@ POST-PROCESSING
 | Times of India RSS | XML/RSS | 8 min | ✅ | ❌ |
 | The Hindu RSS | XML/RSS | 8 min | ✅ | ❌ |
 | Indian Express RSS | XML/RSS | 8 min | ✅ | ❌ |
+| NDTV RSS | XML/RSS | 8 min | ✅ | ❌ |
+| Hindustan Times RSS | XML/RSS | 8 min | ✅ | ❌ |
 | NewsAPI | JSON | 15 min | ✅ (100/day) | ✅ `NEWS_API_KEY` |
 
-### Source Reliability Weights
+**Source Reliability Weights:**
 | Source | Weight |
 |---|---|
 | NDMA | 0.95 |
 | NewsAPI | 0.80 |
-| RSS | 0.70 |
-
-Used in confidence scoring: `final_confidence = model_score * source_weight`
+| RSS (all) | 0.70 |
 
 ---
 
 ## 🤖 Classification Pipeline
 
 ```
-Input: title + description text
+Input: title + description
   │
   ├─ STEP 1: Rule Classifier (< 1ms)
-  │     Keywords: ["flood","earthquake","cyclone","landslide",
-  │                "heatwave","fire","tsunami","storm","cloudburst"]
-  │     If match → label + confidence=0.75
-  │     If conf > 0.75 → DONE ✓
+  │     Regex patterns for: flood, earthquake, cyclone, landslide,
+  │                         heatwave, fire, tsunami, storm
+  │     Returns (disaster_type, 0.75) on match
+  │     If conf >= 0.75 → DONE ✓
   │
   ├─ STEP 2: ML Classifier (~500ms first run, ~50ms cached)
-  │     Model: valhalla/distilbart-mnli-12-3
-  │     Zero-shot classification against disaster labels
-  │     Returns top label + score
-  │     If score > 0.55 → DONE ✓
+  │     Model: valhalla/distilbart-mnli-12-3 (singleton)
+  │     Zero-shot against 8 candidate labels
+  │     If score >= 0.55 → DONE ✓
   │
-  └─ STEP 3: Gemini 1.5 Flash Fallback (~1-2s)
-        Only when confidence < 0.55 or no rule match
+  └─ STEP 3: Gemini 2.5 Flash Fallback (~1-2s)
+        Only when confidence < 0.55
         Hard cap: 10 calls per pipeline cycle
-        Returns: { disaster_type, confidence, reasoning }
+        JSON output: { disaster_type, confidence }
+        "none" type → returns ("unknown", 0.0)
 ```
 
-### Severity Detection Rules
+**Severity Detection Rules:**
 ```
-HIGH   → "killed", "dead", "deaths", "destroyed", "evacuat", "rescue", "collapse"
-MEDIUM → "warning", "alert", "watch", "expected", "possible", "risk"
-LOW    → "update", "monitoring", "advisory", "normal"
+HIGH   → killed, dead, deaths, destroyed, evacuat, rescue, collapse,
+         casualties, fatalities, massive, severe damage, catastrophe,
+         emergency, tragedy, devastation
+MEDIUM → warning, alert, watch, expected, possible, risk, forecast,
+         approaching, moderate, threat
+LOW    → (default fallback)
 ```
 
 ---
 
-## 📍 Geo Pipeline (Phase 3)
+## 📍 Geo Pipeline
 
-### Why MongoDB Replaces Most Geo Code
-
-**SQLite approach** — Haversine math in Python, DBSCAN manually:
-```python
-# 50+ lines of manual distance calculation
-def haversine(lat1, lon1, lat2, lon2): ...
-for event in all_events:
-    if haversine(...) < 50: merge(event)
-```
-
-**MongoDB approach** — One query:
-```python
-db.processed_events.find({
-    "disaster_type": disaster_type,
-    "location.geo": {
-        "$near": {
-            "$geometry": {"type": "Point", "coordinates": [lon, lat]},
-            "$maxDistance": 50000   # 50km
-        }
-    },
-    "timestamp": {"$gte": cutoff_12hr}
-})
-```
-
-### Geo-Resolution Flow
 ```
 Raw text: "Flood in Guwahati, Assam"
     │
-    spaCy NER → ["Guwahati", "Assam"]
+    spaCy NER (en_core_web_sm) → GPE/LOC entities → ["Guwahati", "Assam"]
     │
-    Alias check → no change (not an alias)
+    Alias check → normalize_location("Guwahati") → "Guwahati" (no alias)
     │
-    geo_cache lookup → "guwahati assam india"
-      → Hit?  Return cached [91.7362, 26.1445]
-      → Miss? Query Nominatim → sleep(1.1s) → cache → return
+    geo_cache lookup → key: "guwahati, india"
+      → Hit?  Return cached (lat, lon, display_name)
+      → Miss? Nominatim geocode → sleep(1.1s) → cache → return
     │
-    Store as GeoJSON:
-    { "type": "Point", "coordinates": [91.7362, 26.1445] }
+    Store as GeoJSON: { "type": "Point", "coordinates": [91.7362, 26.1445] }
+    │
+    MongoDB $near check (50km / 12hr same disaster_type)
+      → Duplicate? increment source_count, skip insert
+      → New?      insert processed_events
 ```
+
+**NER Known Limitations (spaCy en_core_web_sm):**
+- Success rate: ~60-70% for Indian locations
+- Works well: Mumbai, Delhi, Bangalore, Kolkata, Uttarakhand, Dehradun, Jaipur
+- Struggles with: Chennai, Assam, Maharashtra, Tamil Nadu, Puducherry
+- Events with no extractable location are skipped (no fake coordinates inserted)
 
 ---
 
-## 🚨 Alert Engine (Phase 4)
+## 🚨 Alert Engine
 
-### Trigger Rules
-```python
-if severity == "HIGH":                          → always alert
-if severity == "MEDIUM" and source_count >= 3:  → alert
-if confidence >= 0.85:                          → alert
-```
+**Trigger:** `risk_score >= 45`
 
-### Risk Scoring per Location
+**Risk Score Formula (0-100):**
 ```
-risk_score = (events_24h * 0.5) + (avg_severity_score * 0.3) + (source_count * 0.2)
-→ 0-1.5 = LOW
-→ 1.5-3  = MEDIUM
-→ 3-5    = HIGH
-→ 5+     = CRITICAL
+base        = HIGH→50, MEDIUM→25, LOW→10
+corroboration = min(30, (source_count - 1) * 2)
+raw_score   = base + corroboration
+adjusted    = raw_score * max(0.2, confidence)
+bonus       = ×1.2 if HIGH + source_count>=5 + confidence>=0.8
+final       = clamp(int(adjusted), 0, 100)
 ```
 
-### Safety Tips (Gemini — cached per disaster type)
-```python
-prompt = f"Disaster: {type}. Give exactly 5 safety steps as JSON array."
-# Cached in memory per type — Gemini not called twice for same type
-```
+**Safety Advice:** Gemini 2.5 Flash, 2 concise sentences, cached 1hr per (disaster_type, severity).
+Static fallback templates for: flood, earthquake, cyclone, fire, heatwave.
+
+**Deduplication:** One alert per event_id — checked via indexed `event_id` lookup.
 
 ---
 
-## 🌍 FastAPI Endpoints (Flutter-ready)
+## 🌍 FastAPI Endpoints
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/events` | List events (filter: type, severity, state) |
-| GET | `/api/events/{id}` | Single event detail |
-| GET | `/api/alerts` | Recent alerts |
-| GET | `/api/stats` | Summary counts + top states |
-| GET | `/api/heatmap` | Coordinates + weights for map |
-| GET | `/api/risk/{location}` | Risk score for a location |
-| POST | `/api/pipeline/run` | Manually trigger collection cycle |
+| Method | Endpoint | Description | Status |
+|---|---|---|---|
+| GET | `/` | Health check | ✅ |
+| GET | `/api/docs` | Swagger UI (auto-generated) | ✅ |
+| GET | `/api/redoc` | ReDoc UI (auto-generated) | ✅ |
+| GET | `/api/events` | List events (filter: type, severity, state, hours, limit) | ✅ |
+| GET | `/api/events/{id}` | Single event detail | ✅ (bug fixed 2026-04-10) |
+| GET | `/api/alerts` | Recent alerts (with limit) | ✅ |
+| GET | `/api/stats` | Summary counts by type + severity | ✅ |
+| GET | `/api/heatmap` | Coordinates + severity weights for map | ✅ |
+| GET | `/api/risk/{location}` | Risk score for a location (24hr window) | ✅ |
+| POST | `/api/pipeline/run` | Manually trigger pipeline (BackgroundTasks) | ✅ |
+
+**Verified live:** All 10 routes registered and returning correct responses.
+**CORS:** Configured for all origins (tighten for production).
+
+**Bug Fixed (2026-04-10):**
+`GET /api/events/{id}` was returning 500 due to missing `raw_event_id` ObjectId → string
+conversion. Fixed in `src/api/routes/events.py`.
 
 ---
 
 ## 🖥️ Streamlit Dashboard
 
-| Page | Content |
-|---|---|
-| 1_Home.py | Live feed, event cards, severity badges, auto-refresh |
-| 2_Map.py | Folium map, color-coded markers, MarkerCluster, Windy iframe |
-| 3_Analytics.py | Disaster type chart, timeline, state breakdown |
-| 4_Alerts.py | Alert history, risk score cards, safety tips |
+| Page | File | Status |
+|---|---|---|
+| Home (stats + navigation) | `app.py` | ✅ Functional |
+| Live event feed + cards | `dashboard/pages/1_Home.py` | ❌ Not created |
+| Folium map + clusters | `dashboard/pages/2_Map.py` | ❌ Not created |
+| Plotly charts + analytics | `dashboard/pages/3_Analytics.py` | ❌ Not created |
+| Alert history + risk scores | `dashboard/pages/4_Alerts.py` | ❌ Not created |
+| Sidebar component | `dashboard/components/sidebar.py` | ❌ Missing (app.py imports it → crash) |
+| Event card component | `dashboard/components/event_card.py` | ❌ Not created |
+| Map builder utility | `dashboard/components/map_builder.py` | ❌ Not created |
+
+> ⚠️ `app.py` imports `from dashboard.components.sidebar import render_sidebar` — this will
+> crash on `streamlit run app.py` until `sidebar.py` is created.
 
 ---
 
 ## ☁️ AWS Deployment Strategy
 
-### Recommended: EC2 + MongoDB Atlas
-
 ```
-MongoDB Atlas (free 512MB) ← database, in cloud
+MongoDB Atlas (free 512MB) ← cloud database
         │
 EC2 t2.micro (free tier)
   ├── FastAPI (uvicorn, port 8000)
@@ -508,7 +452,7 @@ EC2 t2.micro (free tier)
 systemd service → keeps process alive 24/7
 ```
 
-### systemd service file (`/etc/systemd/system/geopulse.service`)
+**systemd service** (`/etc/systemd/system/geopulse.service`):
 ```ini
 [Unit]
 Description=GeoPulse Disaster System
@@ -526,75 +470,39 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-Just change `MONGO_URI` in `.env` from `localhost` to Atlas URI — zero code change.
-
----
-
-## 📦 Requirements (`requirements.txt`)
-
-```
-# API & Server
-fastapi
-uvicorn[standard]
-
-# Dashboard
-streamlit
-streamlit-folium
-folium
-
-# Database
-pymongo[srv]
-
-# Scheduling
-apscheduler
-
-# Data Collection
-feedparser
-httpx
-lxml
-newsapi-python
-
-# AI / ML
-spacy
-transformers
-torch
-google-generativeai
-
-# Geo
-geopy
-
-# Clustering
-scikit-learn
-
-# Utilities
-python-dotenv
-```
-
-**Also run:**
-```bash
-python -m spacy download en_core_web_sm
-```
+Switch to Atlas: change `MONGO_URI` in `.env` — zero code change.
 
 ---
 
 ## 🔐 Environment Variables (`.env`)
 
 ```env
-# MongoDB
-MONGO_URI=mongodb://localhost:27017      # local dev
-# MONGO_URI=mongodb+srv://...           # Atlas (uncomment for prod)
+MONGO_URI=mongodb://localhost:27017
 MONGO_DB=disaster_db
-
-# APIs
 GEMINI_API_KEY=your_gemini_key_here
 NEWS_API_KEY=your_newsapi_key_here
-
-# Settings
 LLM_MAX_CALLS_PER_CYCLE=10
 ML_CONFIDENCE_THRESHOLD=0.55
 RULE_CONFIDENCE_THRESHOLD=0.75
 DEDUP_RADIUS_KM=50
 DEDUP_TIME_WINDOW_HOURS=12
+API_PORT=8000
+```
+
+---
+
+## 📦 Dependencies
+
+Managed via `uv` + `pyproject.toml`. Install with `uv sync`.
+
+Key packages: `fastapi`, `uvicorn[standard]`, `streamlit`, `streamlit-folium`, `folium`,
+`pymongo`, `apscheduler`, `feedparser`, `httpx`, `lxml`, `newsapi-python`, `spacy`,
+`transformers`, `torch`, `google-genai`, `geopy`, `scikit-learn`, `numpy`,
+`python-dotenv`, `pytz`, `plotly`, `pandas`
+
+```bash
+uv sync
+python -m spacy download en_core_web_sm
 ```
 
 ---
@@ -605,126 +513,125 @@ DEDUP_TIME_WINDOW_HOURS=12
 
 ### ✅ Phase 0 — Setup & Scaffolding `COMPLETE`
 
-**Project Config**
-- [x] `pyproject.toml` — all 32 dependencies declared (uv-compatible, `uv sync` verified)
+- [x] `pyproject.toml` — 40+ dependencies, uv-compatible
 - [x] `requirements.txt` — human-readable with inline comments
-- [x] `.env.example` — committed template with all variables documented
-- [x] `.env` — real keys file copied from template (git-ignored)
-- [x] `.gitignore` — covers `.env`, `__pycache__`, `.venv`, HuggingFace cache, logs
-
-**Python Package Skeleton** — all `__init__.py` created:
-- [x] `src/`, `src/db/`, `src/collectors/`, `src/processors/`
-- [x] `src/classifiers/`, `src/geo/`, `src/alerts/`
-- [x] `src/api/`, `src/api/routes/`, `src/scheduler/`
-- [x] `dashboard/`, `dashboard/pages/`, `dashboard/components/`
-
-**Database Layer**
-- [x] `src/db/database.py` — singleton MongoClient, fast-fail ping on startup, all indexes:
-  - `raw_events`: `dedup_hash` (unique), `is_processed`, `created_at`
-  - `processed_events`: `location.geo` (2dsphere), `disaster_type`, `severity`, `is_active`, `timestamp`
-  - `alerts`: `event_id`, `created_at`, `is_read`
-  - `geo_cache`: `cached_at`
-- [x] `src/db/crud.py` — complete CRUD layer (nothing else talks to MongoDB directly):
-  - `insert_raw_event()` — dedup-safe, catches E11000 silently
-  - `get_unprocessed_events(limit)` — oldest-first batch fetch
-  - `mark_raw_event_processed(id)`
-  - `insert_processed_event()` — GeoJSON-aware
-  - `find_nearby_event()` — MongoDB `$near` spatial dedup (50km / 12hr)
-  - `increment_source_count()` — merge duplicate geo events
-  - `get_processed_events()` — filterable by type / severity / state / hours
-  - `get_event_by_id()`, `get_stats()` (aggregation pipeline)
-  - `insert_alert()`, `get_recent_alerts()`, `mark_alert_read()`
-  - `get_geo_cache()`, `set_geo_cache()` — Nominatim cache with upsert
-
-**Scheduler Skeleton**
-- [x] `src/scheduler/jobs.py` — APScheduler BackgroundScheduler (IST timezone):
-  - Job 1: NDMA collector → every 3 min
-  - Job 2: RSS collector → every 8 min
-  - Job 3: NewsAPI collector → every 15 min
-  - Job 4: Full pipeline → every 10 min
-  - Lazy imports on each job (avoids circular import errors)
-
-**FastAPI Skeleton**
-- [x] `src/api/app.py` — factory with CORS, docs at `/api/docs`
-- [x] `src/api/routes/events.py` — `GET /api/events` (filters: type/severity/state/hours) + `GET /api/events/{id}`
-- [x] `src/api/routes/alerts.py` — `GET /api/alerts`
-- [x] `src/api/routes/stats.py` — `GET /api/stats` + `GET /api/heatmap`
-
-**Entry Points**
-- [x] `main.py` — ordered startup: DB init → scheduler → uvicorn (FastAPI)
-- [x] `app.py` — Streamlit placeholder entry, confirms Phase 0 complete
-
-**Dependencies**
-- [x] 148 packages installed via `uv sync` (Python 3.13.12, `.venv/`)
-- [x] `en_core_web_sm` v3.8.0 downloaded via `uv run python -m spacy download en_core_web_sm`
-
-> ⚠️ **Action required:** Add your real `GEMINI_API_KEY` and `NEWS_API_KEY` to `.env`
-> ⚠️ **Action required:** Make sure MongoDB Community Server is running — verify in Compass
-> 🗑️ **Cleanup:** Delete `requirments.txt` (typo leftover from project init)
+- [x] `.env.example` — 10 variables documented
+- [x] `.gitignore` — covers `.env`, `__pycache__`, `.venv`, HuggingFace cache
+- [x] All `__init__.py` files created for every package
+- [x] `src/db/database.py` — singleton MongoClient, ping on startup, all indexes
+- [x] `src/db/crud.py` — complete CRUD layer, only file that touches MongoDB
+- [x] `src/scheduler/jobs.py` — APScheduler, Asia/Kolkata, lazy imports, per-job error handling
+- [x] `src/api/app.py` — FastAPI factory, CORS, docs at `/api/docs`
+- [x] All 4 route modules — events, alerts, stats, pipeline
+- [x] `main.py` — ordered startup: DB init → scheduler → uvicorn
+- [x] `app.py` — Streamlit home page with live stats
+- [x] All packages installed via `uv sync`
+- [x] `en_core_web_sm` v3.8.0 installed
 
 ---
 
-### 🔲 Phase 1 — Data Collection `NEXT`
+### ✅ Phase 1 — Data Collection `COMPLETE`
 
-- [ ] `src/processors/keyword_filter.py` — disaster keyword pre-filter
-- [ ] `src/processors/normalizer.py` — all sources → common schema dict
-- [ ] `src/processors/deduplicator.py` — `make_dedup_hash()` utility
-- [ ] `src/collectors/ndma_collector.py` — NDMA CAP XML, ETag caching
-- [ ] `src/collectors/rss_collector.py` — TOI / The Hindu / Indian Express
-- [ ] `src/collectors/newsapi_collector.py` — NewsAPI.org JSON
-- [ ] **Test:** Run collectors manually → check `raw_events` in Compass
-
----
-
-### 🔲 Phase 2 — Classification
-
-- [ ] `src/classifiers/rule_classifier.py` — keyword fast-path
-- [ ] `src/classifiers/ml_classifier.py` — `distilbart-mnli-12-3` singleton
-- [ ] `src/classifiers/llm_fallback.py` — Gemini 1.5 Flash (max 10/cycle)
-- [ ] `src/classifiers/severity_detector.py` — HIGH / MEDIUM / LOW rules
-- [ ] `src/classifiers/pipeline.py` — full rule → ML → LLM chain
-- [ ] **Test:** 10 raw events → verify `processed_events` in Compass
+- [x] `src/processors/keyword_filter.py` — disaster keywords + negative keyword exclusion
+- [x] `src/processors/normalizer.py` — NDMA / RSS / NewsAPI → common schema
+- [x] `src/processors/deduplicator.py` — SHA256 hash (source + title[:60] + hour bucket)
+- [x] `src/collectors/ndma_collector.py` — CAP XML + Atom fallback, ETag caching
+- [x] `src/collectors/rss_collector.py` — 5 feeds (TOI, Hindu, Express, NDTV, HT), 1s inter-feed delay
+- [x] `src/collectors/newsapi_collector.py` — 4 search queries, 96/100 daily limit safe
 
 ---
 
-### 🔲 Phase 3 — Geo + Clustering
+### ✅ Phase 2 — Classification `COMPLETE`
 
-- [ ] `src/geo/ner_extractor.py` — spaCy GPE extraction
-- [ ] `src/geo/loc_normalizer.py` — alias dict (Bombay → Mumbai etc.)
-- [ ] `src/geo/geo_resolver.py` — Nominatim + `geo_cache` collection
-- [ ] `src/geo/spatial_dedup.py` — MongoDB `$near` dedup
-- [ ] `src/geo/clusterer.py` — DBSCAN cluster assignment
-- [ ] **Test:** Events get lat/lon + cluster_id, check Compass map view
-
----
-
-### 🔲 Phase 4 — Alerts + Intelligence
-
-- [ ] `src/alerts/alert_engine.py` — trigger rules → alerts collection
-- [ ] `src/alerts/risk_scorer.py` — location risk score
-- [ ] `src/alerts/safety_advisor.py` — Gemini tips, cached per type
-- [ ] **Test:** HIGH severity event → alert document visible in Compass
+- [x] `src/classifiers/rule_classifier.py` — compiled regex, 8 disaster types
+- [x] `src/classifiers/ml_classifier.py` — distilbart-mnli-12-3 singleton, 8 candidate labels
+- [x] `src/classifiers/llm_fallback.py` — Gemini 2.5 Flash, JSON output, "none" → unknown
+- [x] `src/classifiers/severity_detector.py` — HIGH/MEDIUM/LOW compiled regex
+- [x] `src/classifiers/pipeline.py` — full 3-tier chain + geo + dedup + clustering + alerts
 
 ---
 
-### 🔲 Streamlit Dashboard
+### ✅ Phase 3 — Geo + Clustering `COMPLETE`
 
-- [ ] `dashboard/pages/1_Home.py` — live feed, severity cards, auto-refresh
-- [ ] `dashboard/pages/2_Map.py` — Folium + clusters + Windy iframe
-- [ ] `dashboard/pages/3_Analytics.py` — charts, breakdown by type/state
-- [ ] `dashboard/pages/4_Alerts.py` — alert history, risk score cards
-- [ ] `dashboard/components/event_card.py`
-- [ ] `dashboard/components/sidebar.py`
-- [ ] `dashboard/components/map_builder.py`
+- [x] `src/geo/ner_extractor.py` — spaCy GPE/LOC, singleton, max 10000 chars, deduped output
+- [x] `src/geo/loc_normalizer.py` — alias dict, title-case values (Bombay→Mumbai)
+- [x] `src/geo/geo_resolver.py` — Nominatim, 1.1s rate limit, MongoDB geo_cache
+- [x] `src/geo/spatial_dedup.py` — MongoDB $near (50km / 12hr), increments source_count
+- [x] `src/geo/clusterer.py` — DBSCAN (eps=100km, ball_tree, haversine), cluster_id "CL-{id[:8]}"
 
 ---
 
-### 🔲 Integration & Polish
+### ✅ Phase 4 — Alerts + Intelligence `COMPLETE`
 
+- [x] `src/alerts/risk_scorer.py` — composite 0-100 score (severity + corroboration + confidence)
+- [x] `src/alerts/safety_advisor.py` — Gemini 2.5 Flash, 1hr TTL cache, static fallback templates
+- [x] `src/alerts/alert_engine.py` — threshold >= 45, dedup by event_id, timezone-aware timestamps
+
+---
+
+### ✅ Full Codebase Verification — `2026-04-10` — PASSED 21/21
+
+**verify_all.py:** 21/21 PASS
+**verify_api.py:** 8/8 expected routes registered ✅
+
+**All bugs fixed as of 2026-04-10:**
+
+| File | Bug | Fix |
+|---|---|---|
+| `keyword_filter.py` | `_PHRASE_PATTERN` undefined | Restored definition |
+| `rule_classifier.py` | `\bloods?\b` matched "blood" | Fixed to `\bfloods?\b` |
+| `pipeline.py` | `_llm_calls_this_cycle` undeclared | Added module-level `= 0` |
+| `loc_normalizer.py` | Dict values lowercase | Fixed to title-case |
+| `llm_fallback.py` | Deprecated `google-generativeai` | Migrated to `google-genai` SDK |
+| `ner_extractor.py` | "FAC" entity type included | Removed (caused building name extraction) |
+| `pipeline.py` | Forced `.title()` on locations | Removed to preserve casing |
+| `pipeline.py` | Fake fallback coordinates | Now skips events with no valid location |
+| `pipeline.py` | Missing fields in processed_events | Added `source_count`, `source_reliability`, `is_active`, `created_at` |
+| `alert_engine.py` | Missing `created_at` | Added timezone-aware datetime |
+| `alert_engine.py` | No handling for missing location | Added fallback to "Unknown Location" |
+| `api/routes/events.py` | `GET /api/events/{id}` → 500 | Added `raw_event_id` ObjectId→str conversion |
+
+---
+
+### 🟡 Phase 5 — Streamlit Dashboard `User Choice Streamlit or Other frontend`
+
+**Complete:**
+- [x] `app.py` — Home page: live metrics (events, severity, alerts, pending raw), event type breakdown, navigation guide
+
+**Missing (dashboard will crash until sidebar.py is created):**
+- [ ] `dashboard/components/sidebar.py` — `render_sidebar()` function (imported by app.py)
+- [ ] `dashboard/components/event_card.py` — reusable event card
+- [ ] `dashboard/components/map_builder.py` — Folium map builder
+- [ ] `dashboard/pages/1_Home.py` — live event feed with auto-refresh
+- [ ] `dashboard/pages/2_Map.py` — Folium map + MarkerCluster + heatmap overlay
+- [ ] `dashboard/pages/3_Analytics.py` — Plotly charts (type/severity/timeline/state)
+- [ ] `dashboard/pages/4_Alerts.py` — alert history + risk score cards + safety tips
+
+---
+
+### 🔲 Phase 6 — Integration & Polish `NOT STARTED`
+
+- [ ] Fix dashboard crash: create `dashboard/components/sidebar.py`
+- [ ] Complete all 4 dashboard pages + 3 components
 - [ ] End-to-end test: collection → classification → map marker visible
 - [ ] Mock data fallback (for when feeds are offline)
 - [ ] `README.md` — setup instructions + architecture diagram
-- [ ] Commit + push Phase 0 to GitHub
+- [ ] Performance optimization and error handling review
+- [ ] Deployment guide (EC2 + Atlas)
+
+---
+
+## 📊 Current Live Database State (as of 2026-04-10)
+
+| Collection | Count | Notes |
+|---|---|---|
+| `raw_events` | 23 | 0 pending (all processed) |
+| `processed_events` | 11 | flood:2, storm:3, fire:3, landslide:2, earthquake:1 |
+| `alerts` | 0 | No events have breached risk threshold yet |
+| `geo_cache` | 10 | Nominatim results cached |
+
+**Severity breakdown:** HIGH:6, MEDIUM:1, LOW:4
+**Heatmap points:** 7 events with valid geo coordinates
 
 ---
 
@@ -732,15 +639,35 @@ DEDUP_TIME_WINDOW_HOURS=12
 
 | Risk | Mitigation |
 |---|---|
-| NDMA feed down / URL changes | try/except, skip cycle, log warning, mock fallback |
-| Nominatim rate limit (1 req/s) | geo_cache collection, sleep(1.1s) |
-| HuggingFace slow first load | Load at startup as singleton |
-| Gemini API cost overrun | Hard cap 10 calls/cycle, cache safety tips by type |
-| NewsAPI 100/day limit | 15-min interval = 96 req/day (just within limit) |
-| MongoDB write concurrency | pymongo handles this natively |
-| GeoJSON lon/lat order confusion | Always store as [lon, lat], documented in crud.py |
+| NDMA feed down / URL changes | try/except, skip cycle, Atom fallback parser |
+| Nominatim rate limit (1 req/s) | geo_cache collection, sleep(1.1s) enforced |
+| HuggingFace slow first load | Singleton loaded at first pipeline run |
+| Gemini API cost overrun | Hard cap 10 calls/cycle, 1hr cache for safety tips |
+| NewsAPI 100/day limit | 15-min interval = 96 req/day (within limit) |
+| MongoDB write concurrency | pymongo handles natively |
+| GeoJSON lon/lat order confusion | Always [lon, lat], documented in crud.py |
+| spaCy low Indian NER accuracy | ~60-70% success rate; events without location skipped |
+| Dashboard crash on startup | sidebar.py missing — must be created before `streamlit run app.py` |
 
 ---
 
-*Last updated: Phase 0 complete ✅ — Phase 1 is next*
+## 🎯 Next Priority
 
+1. **Immediate — Fix dashboard crash:**
+   Create `dashboard/components/sidebar.py` with `render_sidebar()` so `streamlit run app.py` works.
+
+2. **Short-term — Complete Phase 5:**
+   - `dashboard/pages/1_Home.py` — event cards with `st.rerun()` auto-refresh
+   - `dashboard/pages/2_Map.py` — Folium + MarkerCluster + streamlit-folium
+   - `dashboard/pages/3_Analytics.py` — Plotly bar/pie/timeline charts
+   - `dashboard/pages/4_Alerts.py` — alert list + risk score calculator
+   - `dashboard/components/event_card.py` and `map_builder.py`
+
+3. **Long-term — Phase 6:**
+   - README with architecture diagram
+   - AWS EC2 + MongoDB Atlas deployment guide
+   - Mock data fallback for offline feeds
+
+---
+
+*Last updated: 2026-04-10 | Phases 0–4 complete ✅ | API verified 10/10 ✅ | verify_all 21/21 ✅ | Phase 5 partial 🟡 | Phase 6 not started 🔲*

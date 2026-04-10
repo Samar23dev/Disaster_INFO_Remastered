@@ -30,7 +30,7 @@ dependencies = [
     "spacy",
     "transformers",
     "torch",
-    "google-generativeai",
+    "google-genai",
 
     # Geo
     "geopy",
@@ -41,4 +41,7 @@ dependencies = [
 
     # Utilities
     "python-dotenv",
+    "pytz",
+    "plotly",
+    "pandas",
 ]
