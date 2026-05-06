@@ -114,3 +114,14 @@ npm run dev
 - `GET /api/stats` - Summary counts
 - `GET /api/heatmap` - Coordinates for map overlay
 - `POST /api/pipeline/run` - Manually trigger data processing
+
+---
+
+## ✨ React Frontend Features
+
+The modern React dashboard provides a premium, responsive interface for situational awareness:
+
+- **Interactive Geospatial Map:** View clustered disaster events globally using Leaflet, complete with severity-based color coding.
+- **Live Event Feed:** A real-time updating timeline of all collected intelligence.
+- **Alert Management:** Track and view high-risk disaster alerts along with AI-generated safety protocols.
+- **Data Analytics:** Visual summaries of disaster occurrences categorized by type and severity level.
